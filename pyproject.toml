@@ -7,7 +7,8 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Xubin Ren"},
-    {name = "the nanobot contributors"}
+    {name = "the nanobot contributors"},
+    {name = "Archit Bansal", email = "archit.bansal.93@gmail.com"},
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -19,7 +20,6 @@ classifiers = [
 ]
 license-files = [
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md",
 ]
 
 dependencies = [
@@ -94,22 +94,9 @@ build-backend = "hatchling.build"
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.hatch.build.hooks.custom]
-# Implementation lives in the conventional `hatch_build.py` at the repo root.
-
 [tool.hatch.build]
 include = [
     "nanobot/**/*.py",
-    "nanobot/templates/**/*.md",
-    "nanobot/skills/**/*.md",
-    "nanobot/skills/**/*.sh",
-    "nanobot/web/dist/**/*",
-]
-# nanobot/web/dist/ is produced by `cd webui && bun run build` and is
-# git-ignored. List it as an artifact so hatch ships it in both wheel and
-# sdist even though VCS does not track it.
-artifacts = [
-    "nanobot/web/dist/**/*",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -121,11 +108,8 @@ packages = ["nanobot"]
 [tool.hatch.build.targets.sdist]
 include = [
     "nanobot/",
-    "nanobot/web/dist/",
-    "hatch_build.py",
     "README.md",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md",
     "pyproject.toml",
 ]
 

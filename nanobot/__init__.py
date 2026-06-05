@@ -21,28 +21,8 @@ def _resolve_version() -> str:
     try:
         return _pkg_version("nanobot-ai")
     except PackageNotFoundError:
-        # Source checkouts often import nanobot without installed dist-info.
         return _read_pyproject_version() or "0.2.1"
 
 
 __version__ = _resolve_version()
 __logo__ = "🐈"
-
-_LAZY_EXPORTS = {
-    "Nanobot": ".nanobot",
-    "RunResult": ".nanobot",
-}
-
-
-def __getattr__(name: str):
-    module_path = _LAZY_EXPORTS.get(name)
-    if module_path is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    from importlib import import_module
-    mod = import_module(module_path, __name__)
-    val = getattr(mod, name)
-    globals()[name] = val
-    return val
-
-
-__all__ = ["Nanobot", "RunResult"]
