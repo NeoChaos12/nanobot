@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResearchGroupProfile",
+  "description": "A research group profile. Populated progressively: stub on discovery, full profile after the group-profiling stage.",
+  "type": "object",
+  "required": ["id", "institution_id", "name", "url", "status"],
+  "properties": {
+    "id":             { "type": "string" },
+    "institution_id": { "type": "string" },
+    "name":           { "type": "string" },
+    "url":            { "type": "string", "format": "uri" },
+    "status":         { "type": "string", "enum": ["pending", "in_progress", "profiled", "needs_review", "approved", "flagged", "interrupted"] },
+    "notes":          { "type": "string", "default": "" },
+    "pi": {
+      "type": ["object", "null"],
+      "properties": {
+        "name":        { "type": "string" },
+        "email":       { "type": "string" },
+        "profile_url": { "type": "string" }
+      }
+    },
+    "focus":    { "type": ["string", "null"], "description": "2-3 sentence description of research focus" },
+    "themes":   { "type": "array", "items": { "type": "string" }, "description": "Key research themes/keywords" },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title":       { "type": "string" },
+          "description": { "type": "string" },
+          "status":      { "type": "string" }
+        }
+      }
+    },
+    "papers": {
+      "type": "array",
+      "description": "Recent papers (last 2 years preferred)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "year":  { "type": "integer" },
+          "venue": { "type": "string" },
+          "url":   { "type": "string" }
+        }
+      }
+    },
+    "repos": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "url":         { "type": "string" },
+          "name":        { "type": "string" },
+          "description": { "type": "string" },
+          "language":    { "type": "string" },
+          "stars":       { "type": "integer" },
+          "last_commit": { "type": "string" },
+          "open_issues": { "type": "integer" }
+        }
+      }
+    },
+    "contact": {
+      "type": ["object", "null"],
+      "properties": {
+        "email": { "type": "string" },
+        "url":   { "type": "string" }
+      }
+    },
+    "relevance_note": {
+      "type": ["string", "null"],
+      "description": "Why this group matches (or does not match) the user's specified topic"
+    },
+    "missing_fields": { "type": "array", "items": { "type": "string" } }
+  }
+}

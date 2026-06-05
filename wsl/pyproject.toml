@@ -1,0 +1,21 @@
+[project]
+name = "nanobot-wsl"
+version = "0.1.0"
+description = "WSL/Linux-side components for the nanobot framework (skill helpers, Playwright)"
+requires-python = ">=3.11"
+
+dependencies = [
+    "playwright",
+    "requests",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# --- IMPORTANT: venv placement ---
+# Do NOT run `uv sync` from Windows or store .venv on NTFS.
+# From inside WSL, run:
+#   cd /mnt/<drive>/<path-to>/nanobot/wsl
+#   uv sync --python 3.11 --venv ~/venvs/nanobot
+# See SETUP.md for full instructions.

@@ -1,0 +1,39 @@
+<service>
+  <id>NanobotAgent</id>
+  <name>Nanobot Agent</name>
+  <description>Telegram-connected nanobot agent listener.</description>
+
+  <!-- Replace with the actual path to your Windows Python venv pythonw.exe -->
+  <executable>C:\path\to\nanobot\windows\.venv\Scripts\pythonw.exe</executable>
+  <arguments>src\listener.py</arguments>
+  <!-- Replace with the actual path to your windows/ directory -->
+  <workingdirectory>C:\path\to\nanobot\windows</workingdirectory>
+
+  <!-- Run as the local user account so WSL is accessible.
+       Replace YOURUSERNAME and YOURPASSWORD with your actual Windows credentials.
+       WinSW will automatically grant this account the "Log on as a service" right. -->
+  <serviceaccount>
+    <username>.\YOURUSERNAME</username>
+    <password>YOURPASSWORD</password>
+    <allowservicelogon>true</allowservicelogon>
+  </serviceaccount>
+
+  <!-- Automatic start at boot, delayed until network and critical services are ready -->
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+
+  <!-- Restart automatically on any failure, after 10 seconds -->
+  <onfailure action="restart" delay="10 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <!-- Rolling log: keep 3 files, max 10MB each -->
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+  <!-- Replace with the actual path to your tools/logs directory -->
+  <logpath>C:\path\to\nanobot\tools\logs</logpath>
+
+  <!-- Give the process time to shut down cleanly before WinSW force-kills it -->
+  <stoptimeout>30 sec</stoptimeout>
+</service>

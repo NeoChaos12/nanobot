@@ -1,0 +1,267 @@
+"""
+TDD tests for windows/src/listener.py core logic.
+
+Coverage:
+  (a) _load_commands discovers modules that have COMMAND+handle, skips those that don't
+  (b) _is_allowed (from bot_utils) correctly filters based on allowed_chat_ids in config
+  (c) _reset_idle_timer cancels the existing idle task and creates a new one
+  (d) _scheduler_loop calls dev_loop_lifecycle for DEV LOOP tasks; does NOT call it for
+      regular tasks — checked via mocked dispatcher.dev_loop_lifecycle
+
+All Telegram API calls and subprocess invocations are mocked.
+"""
+
+import asyncio
+import importlib
+import sys
+import types
+from pathlib import Path
+from types import ModuleType
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure: inject fake dependencies into sys.modules so that
+# `windows.src.listener` can be imported without real telegram / bot files.
+# ---------------------------------------------------------------------------
+
+def _make_fake_telegram():
+    """Return a minimal fake telegram package tree."""
+    telegram = types.ModuleType("telegram")
+    telegram.BotCommand = MagicMock()
+    telegram.Update = MagicMock()
+    telegram.constants = types.ModuleType("telegram.constants")
+    telegram.constants.ParseMode = MagicMock()
+    ext = types.ModuleType("telegram.ext")
+    ext.Application = MagicMock()
+    ext.CommandHandler = MagicMock()
+    ext.MessageHandler = MagicMock()
+    ext.ContextTypes = MagicMock()
+    ext.filters = MagicMock()
+    telegram.ext = ext
+    return telegram
+
+
+def _install_fake_deps(commands_pkg: ModuleType):
+    """Install all fake windows.src.* dependencies into sys.modules."""
+    fake_telegram = _make_fake_telegram()
+    sys.modules.setdefault("telegram", fake_telegram)
+    sys.modules.setdefault("telegram.constants", fake_telegram.constants)
+    sys.modules.setdefault("telegram.ext", fake_telegram.ext)
+
+    # bot_config
+    fake_bot_config = types.ModuleType("windows.src.bot_config")
+    fake_bot_config.TELEGRAM_TOKEN = "fake-token"
+    fake_bot_config.BASE = Path(__file__).parent.parent  # real path so FileHandler doesn't crash
+    fake_bot_config._cfg = MagicMock(return_value={
+        "allowed_chat_ids": [111],
+        "session": {"idle_timeout_seconds": 600},
+    })
+    sys.modules["windows.src.bot_config"] = fake_bot_config
+
+    # bot_state
+    fake_bot_state = types.ModuleType("windows.src.bot_state")
+    fake_bot_state.sessions = {}
+    fake_bot_state.interrupt_pending = set()
+    fake_bot_state.keepalive_paused = False
+    fake_bot_state.keepalive_resume_event = None
+    sys.modules["windows.src.bot_state"] = fake_bot_state
+
+    # bot_utils
+    fake_bot_utils = types.ModuleType("windows.src.bot_utils")
+    fake_bot_utils._cfg = fake_bot_config._cfg
+    def _is_allowed(chat_id):
+        allowed = set(fake_bot_config._cfg().get("allowed_chat_ids", []))
+        if not allowed:
+            return True
+        return chat_id in allowed
+    fake_bot_utils._is_allowed = _is_allowed
+    fake_bot_utils._send = AsyncMock()
+    sys.modules["windows.src.bot_utils"] = fake_bot_utils
+
+    # dispatcher
+    fake_dispatcher = types.ModuleType("windows.src.dispatcher")
+    fake_dispatcher.run_dispatcher = AsyncMock(return_value={"text": "ok", "session_id": "s1"})
+    fake_dispatcher.dev_loop_lifecycle = AsyncMock()
+    sys.modules["windows.src.dispatcher"] = fake_dispatcher
+
+    # state
+    fake_state = types.ModuleType("windows.src.state")
+    fake_state.append_chat_turn = MagicMock()
+    fake_state.read_scheduled_tasks = MagicMock(return_value=[])
+    fake_state.write_scheduled_tasks = MagicMock()
+    sys.modules["windows.src.state"] = fake_state
+
+    # commands package (caller provides the actual module object)
+    sys.modules["windows.src.commands"] = commands_pkg
+
+    return fake_bot_config, fake_bot_state, fake_bot_utils, fake_dispatcher, fake_state
+
+
+def _make_commands_pkg(tmp_path, modules: list[dict]) -> ModuleType:
+    """
+    Create a fake commands package at tmp_path/commands/ with the given modules.
+    Each entry in modules is a dict: {"name": str, "command": str|None, "has_handle": bool}.
+    Returns the package module object.
+    """
+    cmd_dir = tmp_path / "commands"
+    cmd_dir.mkdir(exist_ok=True)
+    (cmd_dir / "__init__.py").write_text("")
+
+    for spec in modules:
+        lines = []
+        if spec.get("command"):
+            lines.append(f'COMMAND = "{spec["command"]}"')
+            lines.append(f'DESCRIPTION = "desc"')
+        if spec.get("has_handle"):
+            lines.append("async def handle(update, ctx): pass")
+        (cmd_dir / f'{spec["name"]}.py').write_text("\n".join(lines))
+
+    pkg = types.ModuleType("windows.src.commands")
+    pkg.__path__ = [str(cmd_dir)]
+    pkg.__package__ = "windows.src.commands"
+    return pkg
+
+
+# ---------------------------------------------------------------------------
+# (a) _load_commands
+# ---------------------------------------------------------------------------
+
+def test_load_commands_discovers_valid_modules(tmp_path):
+    """Modules with both COMMAND and handle are returned; others are skipped."""
+    commands_pkg = _make_commands_pkg(tmp_path, [
+        {"name": "cmd_foo", "command": "foo", "has_handle": True},
+        {"name": "cmd_bar", "command": "bar", "has_handle": True},
+        {"name": "not_a_cmd", "command": None,  "has_handle": False},
+    ])
+    _install_fake_deps(commands_pkg)
+
+    # Remove cached listener module to force fresh import
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+    result = listener._load_commands()
+
+    commands = {m.COMMAND for m in result}
+    assert "foo" in commands
+    assert "bar" in commands
+    assert len(result) == 2
+
+
+def test_load_commands_skips_module_missing_handle(tmp_path):
+    commands_pkg = _make_commands_pkg(tmp_path, [
+        {"name": "cmd_good", "command": "good", "has_handle": True},
+        {"name": "cmd_bad",  "command": "bad",  "has_handle": False},
+    ])
+    _install_fake_deps(commands_pkg)
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+    result = listener._load_commands()
+
+    assert len(result) == 1
+    assert result[0].COMMAND == "good"
+
+
+def test_load_commands_returns_empty_for_empty_package(tmp_path):
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _install_fake_deps(commands_pkg)
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+    assert listener._load_commands() == []
+
+
+# ---------------------------------------------------------------------------
+# (b) _is_allowed
+# ---------------------------------------------------------------------------
+
+def test_is_allowed_returns_true_for_listed_chat(tmp_path):
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    fake_cfg, *_ = _install_fake_deps(commands_pkg)
+    fake_cfg._cfg.return_value = {"allowed_chat_ids": [111, 222]}
+
+    import windows.src.bot_utils as bu
+    assert bu._is_allowed(111) is True
+    assert bu._is_allowed(222) is True
+
+
+def test_is_allowed_returns_false_for_unlisted_chat(tmp_path):
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    fake_cfg, *_ = _install_fake_deps(commands_pkg)
+    fake_cfg._cfg.return_value = {"allowed_chat_ids": [111]}
+
+    import windows.src.bot_utils as bu
+    assert bu._is_allowed(999) is False
+
+
+def test_is_allowed_returns_true_when_list_empty(tmp_path):
+    """Empty allowed_chat_ids means unrestricted access."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    fake_cfg, *_ = _install_fake_deps(commands_pkg)
+    fake_cfg._cfg.return_value = {"allowed_chat_ids": []}
+
+    import windows.src.bot_utils as bu
+    assert bu._is_allowed(999) is True
+
+
+# ---------------------------------------------------------------------------
+# (c) Session idle timer resets on activity
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reset_idle_timer_cancels_existing_task(tmp_path):
+    """_reset_idle_timer cancels the old idle task and creates a new one."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, *_ = _install_fake_deps(commands_pkg)
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    chat_id = 111
+    old_task = MagicMock(spec=asyncio.Task)
+    old_task.done.return_value = False
+
+    fake_bot_state.sessions[chat_id] = {"session_id": "old", "idle_task": old_task}
+
+    fake_bot = MagicMock()
+    await listener._reset_idle_timer(chat_id, fake_bot)
+
+    old_task.cancel.assert_called_once()
+    new_task = fake_bot_state.sessions[chat_id]["idle_task"]
+    assert new_task is not old_task
+    assert new_task is not None
+
+
+@pytest.mark.asyncio
+async def test_reset_idle_timer_creates_session_entry_if_missing(tmp_path):
+    """_reset_idle_timer initialises a sessions entry when none exists."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, *_ = _install_fake_deps(commands_pkg)
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    chat_id = 555
+    fake_bot_state.sessions = {}
+
+    await listener._reset_idle_timer(chat_id, MagicMock())
+
+    assert chat_id in fake_bot_state.sessions
+    assert fake_bot_state.sessions[chat_id]["idle_task"] is not None

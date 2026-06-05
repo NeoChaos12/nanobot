@@ -1,0 +1,57 @@
+{
+  "_comment": "Nanobot configuration template. Copy this file to nanobot.config.json and fill in the placeholders. See https://github.com/HKUDS/nanobot for full reference.",
+
+  "agents": {
+    "defaults": {
+      "provider": "claude-code-wsl",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "TELEGRAM_BOT_TOKEN"
+    }
+  },
+
+  "session": {
+    "idle_timeout_seconds": 600,
+    "dispatch_timeout_seconds": 600,
+    "keepalive_interval_seconds": 3600,
+    "scheduler_poll_interval_seconds": 60,
+    "chat_history_turns": 3
+  },
+
+  "quota": {
+    "max_sweeps_daytime": 3,
+    "max_sweeps_nighttime": 4,
+    "daytime_hours_local": [7, 23],
+    "timezone": "Europe/Berlin",
+    "_comment": "Token-window quota for unattended research sweeps. Adjust to your usage patterns."
+  },
+
+  "github": {
+    "token": null,
+    "_comment": "Optional. Read-only GitHub PAT for repo lookups. Set env var GITHUB_TOKEN instead of hardcoding here."
+  },
+
+  "allowed_chat_ids": [YOUR_CHAT_ID],
+  "_comment_allowed": "Only these Telegram chat IDs can interact with the bot. Leave empty [] to allow any chat (not recommended). Get your chat ID by messaging @userinfobot on Telegram.",
+
+  "project_dir": "/path/to/your/project/overlay",
+  "_comment_project_dir": "Path (WSL) to the project-specific overlay directory. Contains state/, shared/prompts/dispatcher_system.md, etc.",
+
+  "state_dir": "../../state",
+  "shared_dir": "../../shared",
+
+  "auth": {
+    "_comment": "OAuth token refresh for the WSL claude CLI. Adjust oauth_refresh_url if the default doesn't work (check wsl_auth.py logs).",
+    "oauth_refresh_url": "https://claude.ai/api/auth/oauth/token",
+    "oauth_client_id": null,
+    "refresh_buffer_secs": 600
+  },
+
+  "wsl_project_root": "/path/to/your/project/overlay",
+  "_comment_wsl_project_root": "WSL absolute path passed to the Claude Code subprocess as its working directory."
+}
