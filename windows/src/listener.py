@@ -48,6 +48,8 @@ from windows.src.bot_config import _cfg, TELEGRAM_TOKEN, BASE
 from windows.src.bot_utils import _send, _is_allowed
 from windows.src.dispatcher import run_dispatcher
 from windows.src.state import append_chat_turn
+from windows.src import project_registry
+from windows.src import bot_pool_routing
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -79,6 +81,69 @@ def _load_commands() -> list:
 
 
 # ---------------------------------------------------------------------------
+# Bot pool: Application construction and handler registration
+# ---------------------------------------------------------------------------
+
+def _is_bot_pool_enabled() -> bool:
+    return bool(_cfg().get("bot_pool", {}).get("enabled", False))
+
+
+def _build_applications() -> dict:
+    """Build one telegram.ext.Application per configured, present bot token.
+
+    Single-bot fallback (bot_pool disabled, or bot_pool enabled but
+    TELEGRAM_BOT_TOKEN_DISPATCHER is unset): {"dispatcher": Application} built
+    from TELEGRAM_TOKEN, preserving existing single-project behaviour.
+
+    Pool mode: {"dispatcher": Application, ["T1": Application], ["T2": Application]}.
+    Missing T1/T2 tokens are tolerated -- those Applications are simply not built.
+    """
+    if not _is_bot_pool_enabled():
+        return {"dispatcher": Application.builder().token(TELEGRAM_TOKEN).build()}
+
+    tokens = project_registry.get_bot_tokens()
+    dispatcher_token = tokens.get("dispatcher")
+    if not dispatcher_token:
+        logger.warning(
+            "bot_pool.enabled is true but %s is unset; falling back to single-bot mode",
+            project_registry.DISPATCHER_TOKEN_ENV,
+        )
+        return {"dispatcher": Application.builder().token(TELEGRAM_TOKEN).build()}
+
+    apps = {"dispatcher": Application.builder().token(dispatcher_token).build()}
+    for name, env_var in project_registry.POOL_TOKEN_ENVS.items():
+        token = tokens.get(name)
+        if token:
+            apps[name] = Application.builder().token(token).build()
+        else:
+            logger.warning("%s bot token not configured (%s); skipping", name, env_var)
+    return apps
+
+
+async def _pool_bot_ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Minimal placeholder command for T1/T2 pool bots (Phase 16 adds the borrow helper)."""
+    await update.message.reply_text("pong")
+
+
+def _register_handlers(apps: dict, cmd_modules: list) -> None:
+    """Register handlers per Application.
+
+    Only the dispatcher Application gets the full command set and the
+    catch-all on_message handler. T1/T2 pool Applications are otherwise
+    silent, registering only a minimal /ping command.
+    """
+    dispatcher_app = apps["dispatcher"]
+    for mod in cmd_modules:
+        dispatcher_app.add_handler(CommandHandler(mod.COMMAND, mod.handle))
+    dispatcher_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+
+    for name, app in apps.items():
+        if name == "dispatcher":
+            continue
+        app.add_handler(CommandHandler("ping", _pool_bot_ping))
+
+
+# ---------------------------------------------------------------------------
 # Session helpers
 # ---------------------------------------------------------------------------
 
@@ -106,6 +171,36 @@ async def _reset_idle_timer(chat_id: int, bot) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Bot pool: project resolution and reply-routing for on_message
+# ---------------------------------------------------------------------------
+
+def _project_registry_active() -> bool:
+    """True if shared/config/projects.json exists and has at least one project."""
+    return bool(project_registry.load_projects().get("projects"))
+
+
+def _routing_prefix(chat_id: int, project: dict, update: Update) -> str:
+    """Return a routing-context prefix for the dispatcher message, per the
+    bot_pool_routing decision order: a reply to a tracked message takes
+    priority, otherwise fall back to the most recent open pending question
+    for this project. Empty string if neither applies.
+    """
+    reply_to = getattr(update.message, "reply_to_message", None)
+    reply_to_id = getattr(reply_to, "message_id", None) if reply_to is not None else None
+
+    if reply_to_id is not None:
+        match = bot_pool_routing.resolve_reply(chat_id, reply_to_id)
+        if match and match.get("pending_question_id"):
+            return f"[Reply to pending question {match['pending_question_id']}] "
+        return ""
+
+    followup = bot_pool_routing.resolve_followup(chat_id, project["project_id"])
+    if followup and followup.get("pending_question_id"):
+        return f"[Reply to pending question {followup['pending_question_id']}] "
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Message handler (non-command text → dispatcher)
 # ---------------------------------------------------------------------------
 
@@ -119,6 +214,13 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_allowed(chat_id):
         logger.warning("Rejected message from unlisted chat_id %d", chat_id)
         return
+
+    project = None
+    if _project_registry_active():
+        project = project_registry.resolve_project(chat_id)
+        if project is None:
+            logger.warning("Rejected message from chat_id %d — not found in project registry", chat_id)
+            return
 
     if not _cfg().get("allowed_chat_ids", []):
         logger.info("Message from chat_id %d — add to allowed_chat_ids in config to restrict access", chat_id)
@@ -135,12 +237,16 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     session_id = session.get("session_id")
     history_turns_override = session.pop("history_turns_override", None) if session else None
 
+    dispatch_text = text
+    if project is not None:
+        dispatch_text = _routing_prefix(chat_id, project, update) + text
+
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     async with bot_state.dispatch_lock:
         try:
             result = await run_dispatcher(
-                user_message=text,
+                user_message=dispatch_text,
                 session_id=session_id,
                 chat_id=chat_id,
                 history_turns=history_turns_override,
@@ -363,6 +469,22 @@ async def _scheduler_loop(app: "Application") -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+async def _run_pool(apps: dict) -> None:
+    """Run multiple Applications concurrently (bot pool mode) until cancelled."""
+    for app in apps.values():
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        for app in apps.values():
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
+
+
 def main() -> None:
     logger.info("Starting Nanobot (idle timeout: %ds)",
                 _cfg().get("session", {}).get("idle_timeout_seconds", 600))
@@ -371,11 +493,11 @@ def main() -> None:
     cmd_modules = _load_commands()
     logger.info("Loaded %d command(s): %s", len(cmd_modules), [m.COMMAND for m in cmd_modules])
 
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    apps = _build_applications()
+    logger.info("Built %d Application(s): %s", len(apps), list(apps.keys()))
+    _register_handlers(apps, cmd_modules)
 
-    for mod in cmd_modules:
-        app.add_handler(CommandHandler(mod.COMMAND, mod.handle))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    dispatcher_app = apps["dispatcher"]
 
     async def _post_init(application: "Application") -> None:
         bot_state.keepalive_resume_event = asyncio.Event()
@@ -397,10 +519,14 @@ def main() -> None:
                 parse_mode="HTML",
             )
 
-    app.post_init = _post_init
+    dispatcher_app.post_init = _post_init
 
-    logger.info("Polling for messages...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    if len(apps) == 1:
+        logger.info("Polling for messages (single-bot mode)...")
+        dispatcher_app.run_polling(allowed_updates=Update.ALL_TYPES)
+    else:
+        logger.info("Polling for messages (bot pool: %s)...", ", ".join(apps.keys()))
+        asyncio.run(_run_pool(apps))
 
 
 if __name__ == "__main__":

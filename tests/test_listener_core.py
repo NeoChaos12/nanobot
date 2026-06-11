@@ -97,7 +97,29 @@ def _install_fake_deps(commands_pkg: ModuleType):
     fake_state.append_chat_turn = MagicMock()
     fake_state.read_scheduled_tasks = MagicMock(return_value=[])
     fake_state.write_scheduled_tasks = MagicMock()
+    fake_state.atomic_write = MagicMock()
+    fake_state.read_json = MagicMock(return_value=[])
     sys.modules["windows.src.state"] = fake_state
+
+    # project_registry (no project registry active by default -> single-project fallback)
+    fake_project_registry = types.ModuleType("windows.src.project_registry")
+    fake_project_registry.DISPATCHER_TOKEN_ENV = "TELEGRAM_BOT_TOKEN_DISPATCHER"
+    fake_project_registry.POOL_TOKEN_ENVS = {
+        "T1": "TELEGRAM_BOT_TOKEN_T1",
+        "T2": "TELEGRAM_BOT_TOKEN_T2",
+    }
+    fake_project_registry.load_projects = MagicMock(return_value={"projects": {}})
+    fake_project_registry.resolve_project = MagicMock(return_value=None)
+    fake_project_registry.get_bot_tokens = MagicMock(return_value={
+        "dispatcher": None, "T1": None, "T2": None,
+    })
+    sys.modules["windows.src.project_registry"] = fake_project_registry
+
+    # bot_pool_routing
+    fake_bot_pool_routing = types.ModuleType("windows.src.bot_pool_routing")
+    fake_bot_pool_routing.resolve_reply = MagicMock(return_value=None)
+    fake_bot_pool_routing.resolve_followup = MagicMock(return_value=None)
+    sys.modules["windows.src.bot_pool_routing"] = fake_bot_pool_routing
 
     # commands package (caller provides the actual module object)
     sys.modules["windows.src.commands"] = commands_pkg
