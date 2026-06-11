@@ -15,6 +15,23 @@
     }
   },
 
+  "bot_pool": {
+    "enabled": false,
+    "_comment": "Optional multi-bot pool: one always-on dispatcher bot plus T1/T2 'pool' bots that sub-agents can temporarily borrow to post into a project's group. See windows/src/project_registry.py and shared/config/projects.template.json. Tokens are read from environment variables, never stored here.",
+    "dispatcher_token_env": "TELEGRAM_BOT_TOKEN_DISPATCHER",
+    "pool_bots": {
+      "T1": {
+        "token_env": "TELEGRAM_BOT_TOKEN_T1",
+        "assigned_project": null
+      },
+      "T2": {
+        "token_env": "TELEGRAM_BOT_TOKEN_T2",
+        "assigned_project": null
+      }
+    },
+    "_comment_assigned_project": "assigned_project is the project_id (key in projects.json) currently borrowing this pool bot, or null if unassigned. Updated at runtime, not by hand."
+  },
+
   "session": {
     "idle_timeout_seconds": 600,
     "dispatch_timeout_seconds": 600,

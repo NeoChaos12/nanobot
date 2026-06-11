@@ -1,6 +1,7 @@
 # Framework overlay — never commit project-specific runtime files
 state/
 nanobot.config.json
+projects.json
 dispatcher_system.md
 windows/.venv/
 shared/PROTOCOL.md

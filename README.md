@@ -107,6 +107,29 @@ Generic skills in `wsl/skills/`:
 | `/config` | Show hot-reloadable config values |
 | `/restart` | Restart the bot process |
 
+## Bot pool (multi-project, optional)
+
+`bot_pool` in `nanobot.config.json` and `windows/src/project_registry.py` provide
+scaffolding for running one always-on dispatcher bot plus two "pool" bots (T1/T2)
+that sub-agents can temporarily borrow to post into a project's Telegram group.
+This is **disabled by default** (`bot_pool.enabled: false`) and not required for a
+single-project deployment.
+
+To use it:
+
+1. Copy `shared/config/projects.template.json` to `shared/config/projects.json` and
+   register each project's `chat_id`, `state_dir`, `project_dir`, and
+   `dispatcher_prompt`.
+2. Set the bot tokens as environment variables (never in config files):
+   `TELEGRAM_BOT_TOKEN_DISPATCHER`, and optionally `TELEGRAM_BOT_TOKEN_T1` /
+   `TELEGRAM_BOT_TOKEN_T2`. `project_registry.get_bot_tokens()` tolerates missing
+   T1/T2 — pool bots are optional.
+3. Set `bot_pool.enabled: true`.
+
+`tests/test_project_registry.py` exercises this module entirely against temporary
+files and mocked environment variables — no real tokens or `projects.json` are
+needed to run the test suite.
+
 ## Windows service (alternative to Task Scheduler)
 
 `tools/winsw.xml` provides a [WinSW](https://github.com/winsw/winsw/releases) service config. Download `WinSW.exe` into `tools/`, edit the XML paths, then:

@@ -1,0 +1,17 @@
+{
+  "_comment": "Bot-pool project registry. Copy this file to projects.json and fill in real values. Maps each project to the Telegram chat (group) it is reachable from. Optional -- single-project deployments do not need this file at all.",
+  "_comment_fields": {
+    "chat_id": "Telegram chat/group id this project's bots post to and listen in. Get it by messaging @userinfobot or checking getUpdates.",
+    "state_dir": "Absolute path to this project's state/ directory.",
+    "project_dir": "Absolute path to this project's root directory (the overlay, not framework-repo).",
+    "dispatcher_prompt": "Absolute path to this project's shared/prompts/dispatcher_system.md."
+  },
+  "projects": {
+    "example-project": {
+      "chat_id": 0,
+      "state_dir": "/path/to/example-project/state",
+      "project_dir": "/path/to/example-project",
+      "dispatcher_prompt": "/path/to/example-project/shared/prompts/dispatcher_system.md"
+    }
+  }
+}
