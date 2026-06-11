@@ -47,6 +47,23 @@ ruff check windows/src/ wsl/
 .venv\Scripts\python src\listener.py
 ```
 
+## Bot recovery / restart
+
+Task Scheduler's `RestartOnFailure` (configured by `setup_task_scheduler.ps1`) does not
+reliably fire under `RunLevel=Highest` + `LogonType=InteractiveToken` (a Windows Task
+Scheduler limitation, not a code bug) — kept for parity/no harm, but it is not the
+recovery mechanism.
+
+`NanobotWatchdog` is the **exclusive** recovery mechanism: a separate Task Scheduler
+task that polls every 1 minute and relaunches the bot task (`NanobotAgent`) if it's not
+`Running`. The `/restart` command (`cmd_restart.py`) just exits the process
+(`os._exit(1)`) and relies on the watchdog to bring it back, typically within ~1 minute.
+
+Setup (one-time, after `setup_task_scheduler.ps1`): run `tools/setup_watchdog_task.ps1`
+as Administrator.
+
+Logs: `tools/logs/watchdog-<date>.log` (rotating, via `tools/lib/logging.ps1`).
+
 ## Key Conventions
 
 - All Telegram responses use HTML parse mode. Formatting rules live in `wsl/skills/telegram-format/SKILL.md`.

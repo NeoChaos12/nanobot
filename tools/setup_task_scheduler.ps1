@@ -5,10 +5,17 @@
 #        OR from an elevated PowerShell prompt:
 #        powershell -ExecutionPolicy Bypass -File "C:\path\to\nanobot\tools\setup_task_scheduler.ps1"
 #
-# Restart-on-failure:
-#   -RestartInterval and -RestartCount below make Task Scheduler relaunch the bot
-#   automatically whenever it exits with a non-zero code. The /restart Telegram command
-#   triggers this intentionally (listener.py calls sys.exit(1) after a clean shutdown).
+# Restart-on-failure (caveat):
+#   -RestartInterval and -RestartCount below configure Task Scheduler to relaunch the
+#   bot whenever it exits with a non-zero code, but this does NOT reliably fire under
+#   RunLevel=Highest + LogonType=InteractiveToken (a Windows Task Scheduler limitation,
+#   not a code bug -- the engine-driven relaunch path for InteractiveToken tasks fails
+#   silently before any loggable event). The settings are kept here for parity/no harm.
+#   The actual recovery mechanism is the separate "NanobotWatchdog" task (see
+#   setup_watchdog_task.ps1, run separately as a one-time setup step), which polls
+#   every 1 minute and relaunches the bot task if it's not Running. The /restart
+#   Telegram command (cmd_restart.py) just exits the process with os._exit(1) and
+#   relies on NanobotWatchdog to bring it back within ~1 minute.
 
 # Replace these paths with your actual installation paths
 $pythonExe = "C:\path\to\nanobot\windows\.venv\Scripts\pythonw.exe"
