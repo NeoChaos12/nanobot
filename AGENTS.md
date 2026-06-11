@@ -79,6 +79,38 @@ Logs: `tools/logs/watchdog-<date>.log` (rotating, via `tools/lib/logging.ps1`).
   uses `logging` with a `TimedRotatingFileHandler` (daily, 30 backups) on the same
   defaults.
 
+## Bot pool helper (T1/T2)
+
+When `bot_pool.enabled` is true, `windows/src/bot_pool_helper.py` lets a sub-agent
+(task-executor / dev-loop agent) temporarily borrow one of the silent pool bots
+(`T1`/`T2`) to post a progress update or question into a project's Telegram group:
+
+```python
+from windows.src import bot_pool_helper
+
+bot_name = bot_pool_helper.borrow_bot(project_id)
+if bot_name:
+    await bot_pool_helper.send_via_pool_bot(
+        project_id, chat_id, "Phase 16 done -- proceed?",
+        pending_question_id="dev-loop-16.1-review",
+    )
+    bot_pool_helper.release_bot(project_id)
+```
+
+- `borrow_bot(project_id)` assigns a free pool bot (persisted in
+  `state/bot_pool/assignments.json`) and is idempotent for a project that
+  already holds one. Returns `None` if both T1 and T2 are assigned to other
+  projects -- in that case, fall back to writing the pending question to
+  `pending_questions.json` without a Telegram post; it still surfaces via the
+  project's normal flow.
+- `send_via_pool_bot(...)` with `pending_question_id` set records the sent
+  message via `bot_pool_routing.record_sent_message()` (Phase 14), so a later
+  reply from Archit in that group is routed back to the question via the
+  sent-message registry, regardless of which bot currently holds the T1/T2
+  slot.
+- `release_bot(project_id)` frees the assignment once the sub-agent is done
+  with the borrowed bot, so other projects can use it.
+
 ## Project-Specific Overlay
 
 To build a domain-specific pipeline on top of this framework, create a project directory (outside this repo) containing:
