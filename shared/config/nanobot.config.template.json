@@ -20,7 +20,10 @@
     "dispatch_timeout_seconds": 600,
     "keepalive_interval_seconds": 3600,
     "scheduler_poll_interval_seconds": 60,
-    "chat_history_turns": 3
+    "chat_history_turns": 3,
+    "chat_history_rotate_multiplier": 3,
+    "chat_history_max_size_mb": 5,
+    "_comment_chat_history": "chat_history.jsonl is rotated into chat_history_archive/ once its oldest entry exceeds idle_timeout_seconds * chat_history_rotate_multiplier. The archive is then pruned (oldest files first) to stay under chat_history_max_size_mb total."
   },
 
   "quota": {

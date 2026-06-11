@@ -53,6 +53,14 @@ ruff check windows/src/ wsl/
 - Scheduled tasks are written to `state/scheduled_tasks.json` by the dispatcher and polled by the Windows listener.
 - Skills are Markdown files (`SKILL.md`) that Claude Code loads into context. They are not Python modules.
 - The `shared/config/nanobot.config.json` is gitignored; users copy from the `.template.json`.
+- New non-one-off scripts/services must log at key workflow checkpoints (DEBUG level,
+  silenceable via `NANOBOT_LOG_LEVEL=INFO`) into a rolling log. Default retention is
+  30 days, rotating one day's file at a time (so each rotation only drops ~1 day of
+  history, not the whole log), with a 5MB-per-day safety cap; both are configurable.
+  PowerShell scripts in `tools/` dot-source `tools/lib/logging.ps1` and call
+  `Write-Log -Path ".../name.log"` (writes to `name-yyyy-MM-dd.log`); Python code
+  uses `logging` with a `TimedRotatingFileHandler` (daily, 30 backups) on the same
+  defaults.
 
 ## Project-Specific Overlay
 
