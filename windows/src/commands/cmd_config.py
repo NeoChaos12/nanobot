@@ -41,6 +41,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             (("session", "dispatch_timeout_seconds"),        "dispatch_timeout_seconds",        600),
             (("session", "keepalive_interval_seconds"),      "keepalive_interval_seconds",      3600),
             (("session", "scheduler_poll_interval_seconds"), "scheduler_poll_interval_seconds", 60),
+            (("session", "chat_history_turns"),              "chat_history_turns",              3),
+            (("session", "chat_history_max_size_mb"),        "chat_history_max_size_mb",        5),
+            (("session", "chat_history_rotate_multiplier"),  "chat_history_rotate_multiplier",  3),
             (("allowed_chat_ids",),                          "allowed_chat_ids",                []),
         ]
         changes = []
@@ -70,6 +73,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"dispatch_timeout_seconds:        <code>{sess.get('dispatch_timeout_seconds', 600)}</code>",
         f"keepalive_interval_seconds:      <code>{sess.get('keepalive_interval_seconds', 3600)}</code>",
         f"scheduler_poll_interval_seconds: <code>{sess.get('scheduler_poll_interval_seconds', 60)}</code>",
+        f"chat_history_turns:              <code>{sess.get('chat_history_turns', 3)}</code>",
+        f"chat_history_max_size_mb:        <code>{sess.get('chat_history_max_size_mb', 5)}</code>",
+        f"chat_history_rotate_multiplier:  <code>{sess.get('chat_history_rotate_multiplier', 3)}</code>",
         f"allowed_chat_ids:                <code>{_cfg().get('allowed_chat_ids', [])}</code>",
         "",
         "<b>Requires restart</b>",

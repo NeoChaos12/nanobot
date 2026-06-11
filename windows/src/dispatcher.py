@@ -108,7 +108,7 @@ active_jobs: dict[int, dict] = {}
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _build_first_turn(user_message: str, chat_id: Optional[int] = None) -> str:
+def _build_first_turn(user_message: str, chat_id: Optional[int] = None, history_turns: Optional[int] = None) -> str:
     """
     Construct the full input for a new session:
     system prompt (with state snapshot injected), optional recent history from the
@@ -120,9 +120,10 @@ def _build_first_turn(user_message: str, chat_id: Optional[int] = None) -> str:
     system = system.replace("{IDLE_TIMEOUT_SECONDS}", str(_idle_timeout()))
     system = system.replace("{USER_TIMEZONE}", _user_timezone_label())
 
+    n_turns = history_turns if history_turns is not None else _chat_history_turns()
     history_block = ""
     if chat_id is not None:
-        turns = get_previous_session_turns(chat_id, _chat_history_turns())
+        turns = get_previous_session_turns(chat_id, n_turns)
         if turns:
             lines = []
             for t in turns:
@@ -362,6 +363,7 @@ async def run_dispatcher(
     user_message: str,
     session_id: Optional[str] = None,
     chat_id: Optional[int] = None,
+    history_turns: Optional[int] = None,
 ) -> dict:
     """
     Invoke Claude Code via WSL and return the response.
@@ -402,7 +404,7 @@ async def run_dispatcher(
         prompt_input = user_message
     else:
         claude_cmd = f'claude -p {CLAUDE_FLAGS}'
-        prompt_input = _build_first_turn(user_message, chat_id=chat_id)
+        prompt_input = _build_first_turn(user_message, chat_id=chat_id, history_turns=history_turns)
 
     # Bubblewrap sandbox: read-only view of the entire filesystem, with
     # targeted write overrides for the project directory and Claude's own

@@ -355,3 +355,58 @@ async def test_on_message_releases_lock_after_dispatcher_error(tmp_path):
     fake_bot_utils._send.assert_awaited_once()
     sent_text = fake_bot_utils._send.call_args.args[2]
     assert "error" in sent_text.lower()
+
+
+# ---------------------------------------------------------------------------
+# (f) on_message consumes a one-shot history_turns_override from the session
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_on_message_passes_and_clears_history_turns_override(tmp_path):
+    """A pending history_turns_override is forwarded to run_dispatcher and popped."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, fake_bot_utils, fake_dispatcher, _ = _install_fake_deps(commands_pkg)
+    fake_dispatcher.run_dispatcher.reset_mock()
+    fake_bot_utils._send.reset_mock()
+
+    fake_bot_state.sessions[111] = {
+        "session_id": None,
+        "idle_task": None,
+        "history_turns_override": 7,
+    }
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    update, context = _make_update_and_context(111, "hello")
+    await listener.on_message(update, context)
+
+    fake_dispatcher.run_dispatcher.assert_awaited_once()
+    _, kwargs = fake_dispatcher.run_dispatcher.call_args
+    assert kwargs["history_turns"] == 7
+    assert "history_turns_override" not in fake_bot_state.sessions[111]
+
+
+@pytest.mark.asyncio
+async def test_on_message_no_override_passes_none(tmp_path):
+    """With no override pending, run_dispatcher is called with history_turns=None."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, fake_bot_utils, fake_dispatcher, _ = _install_fake_deps(commands_pkg)
+    fake_dispatcher.run_dispatcher.reset_mock()
+    fake_bot_utils._send.reset_mock()
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    update, context = _make_update_and_context(111, "hello")
+    await listener.on_message(update, context)
+
+    fake_dispatcher.run_dispatcher.assert_awaited_once()
+    _, kwargs = fake_dispatcher.run_dispatcher.call_args
+    assert kwargs["history_turns"] is None

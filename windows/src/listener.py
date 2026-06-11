@@ -133,6 +133,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     session    = bot_state.sessions.get(chat_id, {})
     session_id = session.get("session_id")
+    history_turns_override = session.pop("history_turns_override", None) if session else None
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
@@ -142,6 +143,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 user_message=text,
                 session_id=session_id,
                 chat_id=chat_id,
+                history_turns=history_turns_override,
             )
         except Exception as exc:
             logger.error("Dispatcher error for chat %d: %s", chat_id, exc, exc_info=True)

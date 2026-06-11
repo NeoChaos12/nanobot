@@ -138,6 +138,8 @@ EXPECTED_COMMAND_MODULES = [
     "windows.src.commands.cmd_reauth",
     "windows.src.commands.cmd_config",
     "windows.src.commands.cmd_restart",
+    "windows.src.commands.cmd_new",
+    "windows.src.commands.cmd_shutdown",
 ]
 
 
@@ -310,3 +312,135 @@ async def test_tasks_ignores_disallowed_chat():
     await cmd_tasks.handle(_make_update(chat_id=9999), _make_context(args=[]))
 
     fake_bot_utils._send.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# (e) /new resets the session, optionally overriding history_turns
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_new_resets_session_with_no_args():
+    """cmd_new.handle with no args clears the session and leaves no history override."""
+    fake_bot_utils, fake_bot_state, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+
+    fake_idle = MagicMock(spec=asyncio.Task)
+    fake_idle.done.return_value = False
+    fake_bot_state.sessions[ALLOWED_CHAT_ID] = {"session_id": "s1", "idle_task": fake_idle}
+
+    sys.modules.pop("windows.src.commands.cmd_new", None)
+    import windows.src.commands.cmd_new as cmd_new
+
+    await cmd_new.handle(_make_update(), _make_context(args=[]))
+
+    fake_idle.cancel.assert_called_once()
+    new_session = fake_bot_state.sessions[ALLOWED_CHAT_ID]
+    assert new_session["session_id"] is None
+    assert new_session["history_turns_override"] is None
+    fake_bot_utils._send.assert_awaited_once()
+    sent_text = fake_bot_utils._send.call_args[0][2]
+    assert "fresh" in sent_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_new_with_turns_arg_sets_override():
+    """cmd_new.handle <turns> stores the override for the next dispatch."""
+    fake_bot_utils, fake_bot_state, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+    fake_bot_state.sessions.clear()
+
+    sys.modules.pop("windows.src.commands.cmd_new", None)
+    import windows.src.commands.cmd_new as cmd_new
+
+    await cmd_new.handle(_make_update(), _make_context(args=["7"]))
+
+    new_session = fake_bot_state.sessions[ALLOWED_CHAT_ID]
+    assert new_session["session_id"] is None
+    assert new_session["history_turns_override"] == 7
+    sent_text = fake_bot_utils._send.call_args[0][2]
+    assert "7" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_new_with_negative_turns_sends_error():
+    """cmd_new.handle <negative turns> rejects without clearing the session."""
+    fake_bot_utils, fake_bot_state, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+    fake_bot_state.sessions[ALLOWED_CHAT_ID] = {"session_id": "s1", "idle_task": None}
+
+    sys.modules.pop("windows.src.commands.cmd_new", None)
+    import windows.src.commands.cmd_new as cmd_new
+
+    await cmd_new.handle(_make_update(), _make_context(args=["-1"]))
+
+    assert fake_bot_state.sessions[ALLOWED_CHAT_ID]["session_id"] == "s1"
+    sent_text = fake_bot_utils._send.call_args[0][2]
+    assert "0 or greater" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_new_with_non_numeric_turns_sends_error():
+    """cmd_new.handle <not-a-number> rejects with an error message."""
+    fake_bot_utils, fake_bot_state, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+    fake_bot_state.sessions.clear()
+
+    sys.modules.pop("windows.src.commands.cmd_new", None)
+    import windows.src.commands.cmd_new as cmd_new
+
+    await cmd_new.handle(_make_update(), _make_context(args=["abc"]))
+
+    assert ALLOWED_CHAT_ID not in fake_bot_state.sessions
+    sent_text = fake_bot_utils._send.call_args[0][2]
+    assert "invalid" in sent_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_new_ignores_disallowed_chat():
+    """cmd_new.handle must silently return without sending if chat not allowed."""
+    fake_bot_utils, fake_bot_state, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+
+    sys.modules.pop("windows.src.commands.cmd_new", None)
+    import windows.src.commands.cmd_new as cmd_new
+
+    await cmd_new.handle(_make_update(chat_id=9999), _make_context(args=[]))
+
+    fake_bot_utils._send.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# (f) /shutdown sends a notice and exits cleanly (no auto-restart)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_shutdown_sends_message_and_exits_zero():
+    """cmd_shutdown.handle notifies the chat and exits with code 0 (no restart)."""
+    fake_bot_utils, _, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+
+    sys.modules.pop("windows.src.commands.cmd_shutdown", None)
+    import windows.src.commands.cmd_shutdown as cmd_shutdown
+
+    with patch("windows.src.commands.cmd_shutdown.os._exit") as mock_exit, \
+         patch("windows.src.commands.cmd_shutdown.asyncio.sleep", new=AsyncMock()):
+        await cmd_shutdown.handle(_make_update(), _make_context())
+
+    fake_bot_utils._send.assert_awaited_once()
+    mock_exit.assert_called_once_with(0)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_ignores_disallowed_chat():
+    """cmd_shutdown.handle must silently return without sending or exiting if chat not allowed."""
+    fake_bot_utils, _, _ = _install_fake_deps()
+    fake_bot_utils._send = AsyncMock()
+
+    sys.modules.pop("windows.src.commands.cmd_shutdown", None)
+    import windows.src.commands.cmd_shutdown as cmd_shutdown
+
+    with patch("windows.src.commands.cmd_shutdown.os._exit") as mock_exit:
+        await cmd_shutdown.handle(_make_update(chat_id=9999), _make_context())
+
+    fake_bot_utils._send.assert_not_awaited()
+    mock_exit.assert_not_called()

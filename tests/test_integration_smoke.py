@@ -146,8 +146,8 @@ def test_load_commands_discovers_all_command_modules():
     modules = listener._load_commands()
 
     commands = {m.COMMAND for m in modules}
-    expected = {"help", "end", "tasks", "interrupt", "schedule",
-                "keepalive", "authstatus", "reauth", "config", "restart"}
+    expected = {"help", "end", "new", "tasks", "interrupt", "schedule",
+                "keepalive", "authstatus", "reauth", "config", "restart", "shutdown"}
     assert expected == commands, f"Missing commands: {expected - commands}"
 
 

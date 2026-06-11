@@ -17,6 +17,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Any plain message → routed to the dispatcher (LLM)\n\n"
         "<b>Session control</b>\n"
         "/end — close the current session immediately\n"
+        "/new — end current session and start fresh "
+        "(optional: /new &lt;turns&gt; to override history)\n"
         "/interrupt — signal running task to stop (send twice to force-kill)\n\n"
         "<b>Scheduled tasks</b>\n"
         "/tasks — list all queued (T1…) and failed (F1…) tasks\n"
@@ -40,7 +42,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/config — show hot-reloadable config values\n"
         "/config reload — reload nanobot.config.json without restarting\n\n"
         "<b>Bot management</b>\n"
-        "/restart — restart the bot process (Task Scheduler relaunches)\n\n"
+        "/restart — restart the bot process (Task Scheduler relaunches)\n"
+        "/shutdown — stop the bot (no auto-restart)\n\n"
         "/help — show this message"
     )
     await _send(context, chat_id, text)

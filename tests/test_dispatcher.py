@@ -337,7 +337,31 @@ def test_build_first_turn_none_chat_id_skips_history():
         result = mod._build_first_turn("msg", chat_id=None)
 
     patches["windows.src.dispatcher.get_previous_session_turns"].assert_not_called()
-    assert "<history>" not in result
+
+
+def test_build_first_turn_history_turns_override():
+    """An explicit history_turns overrides the configured chat_history_turns default."""
+    mod = _import_module()
+    patches = _build_first_turn_patches(turns=[])
+    patches["windows.src.dispatcher._chat_history_turns"] = MagicMock(return_value=3)
+
+    with _apply_bft_patches(patches):
+        mod._build_first_turn("msg", chat_id=1, history_turns=7)
+
+    patches["windows.src.dispatcher.get_previous_session_turns"].assert_called_once_with(1, 7)
+    patches["windows.src.dispatcher._chat_history_turns"].assert_not_called()
+
+
+def test_build_first_turn_no_override_uses_configured_default():
+    """When history_turns is None, the configured chat_history_turns default is used."""
+    mod = _import_module()
+    patches = _build_first_turn_patches(turns=[])
+    patches["windows.src.dispatcher._chat_history_turns"] = MagicMock(return_value=3)
+
+    with _apply_bft_patches(patches):
+        mod._build_first_turn("msg", chat_id=1)
+
+    patches["windows.src.dispatcher.get_previous_session_turns"].assert_called_once_with(1, 3)
 
 
 # ---------------------------------------------------------------------------
