@@ -125,21 +125,28 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     bot_state.interrupt_pending.discard(chat_id)
 
+    if bot_state.dispatch_lock.locked():
+        logger.info("Dispatch already running — dropping message from chat %d", chat_id)
+        await _send(context, chat_id,
+                    "⏳ A dispatch is already running. Send /interrupt if you think it's stuck.")
+        return
+
     session    = bot_state.sessions.get(chat_id, {})
     session_id = session.get("session_id")
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    try:
-        result = await run_dispatcher(
-            user_message=text,
-            session_id=session_id,
-            chat_id=chat_id,
-        )
-    except Exception as exc:
-        logger.error("Dispatcher error for chat %d: %s", chat_id, exc, exc_info=True)
-        await _send(context, chat_id, f"⚠️ Dispatcher error: {exc}")
-        return
+    async with bot_state.dispatch_lock:
+        try:
+            result = await run_dispatcher(
+                user_message=text,
+                session_id=session_id,
+                chat_id=chat_id,
+            )
+        except Exception as exc:
+            logger.error("Dispatcher error for chat %d: %s", chat_id, exc, exc_info=True)
+            await _send(context, chat_id, f"⚠️ Dispatcher error: {exc}")
+            return
 
     if chat_id not in bot_state.sessions:
         bot_state.sessions[chat_id] = {}

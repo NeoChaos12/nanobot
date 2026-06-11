@@ -13,6 +13,11 @@ import asyncio
 # Per-chat session state: { chat_id: { "session_id": str|None, "idle_task": asyncio.Task|None } }
 sessions: dict[int, dict] = {}
 
+# Global dispatch lock — only one dispatcher subprocess may run at a time.
+# Acquired by on_message before calling run_dispatcher.
+# Callers that cannot acquire it immediately should notify the user and drop the message.
+dispatch_lock: asyncio.Lock = asyncio.Lock()
+
 # Chats that sent one /interrupt and are waiting for phase-2 confirmation
 interrupt_pending: set[int] = set()
 

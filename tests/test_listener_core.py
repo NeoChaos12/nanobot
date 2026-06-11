@@ -7,6 +7,10 @@ Coverage:
   (c) _reset_idle_timer cancels the existing idle task and creates a new one
   (d) _scheduler_loop calls dev_loop_lifecycle for DEV LOOP tasks; does NOT call it for
       regular tasks — checked via mocked dispatcher.dev_loop_lifecycle
+  (e) on_message serialises dispatcher invocations via bot_state.dispatch_lock: a
+      second call while a dispatch is in-flight is rejected with a "busy" notice and
+      does not spawn a second dispatcher run; the lock is released after the first
+      dispatch completes (success or error)
 
 All Telegram API calls and subprocess invocations are mocked.
 """
@@ -67,6 +71,7 @@ def _install_fake_deps(commands_pkg: ModuleType):
     fake_bot_state.interrupt_pending = set()
     fake_bot_state.keepalive_paused = False
     fake_bot_state.keepalive_resume_event = None
+    fake_bot_state.dispatch_lock = asyncio.Lock()
     sys.modules["windows.src.bot_state"] = fake_bot_state
 
     # bot_utils
@@ -265,3 +270,88 @@ async def test_reset_idle_timer_creates_session_entry_if_missing(tmp_path):
 
     assert chat_id in fake_bot_state.sessions
     assert fake_bot_state.sessions[chat_id]["idle_task"] is not None
+
+
+# ---------------------------------------------------------------------------
+# (e) on_message dispatch_lock serialisation
+# ---------------------------------------------------------------------------
+
+def _make_update_and_context(chat_id: int, text: str):
+    update = MagicMock()
+    update.effective_chat.id = chat_id
+    update.message.text = text
+
+    context = MagicMock()
+    context.bot.send_chat_action = AsyncMock()
+    return update, context
+
+
+@pytest.mark.asyncio
+async def test_on_message_busy_when_dispatch_lock_held(tmp_path):
+    """A second message while a dispatch is in-flight gets a busy notice and is dropped."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, fake_bot_utils, fake_dispatcher, _ = _install_fake_deps(commands_pkg)
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    await fake_bot_state.dispatch_lock.acquire()
+    try:
+        update, context = _make_update_and_context(111, "hello")
+        await listener.on_message(update, context)
+    finally:
+        fake_bot_state.dispatch_lock.release()
+
+    fake_dispatcher.run_dispatcher.assert_not_called()
+    fake_bot_utils._send.assert_awaited_once()
+    sent_text = fake_bot_utils._send.call_args.args[2]
+    assert "busy" in sent_text.lower() or "already running" in sent_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_on_message_releases_lock_after_success(tmp_path):
+    """The dispatch_lock is released after a successful dispatcher run."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, fake_bot_utils, fake_dispatcher, _ = _install_fake_deps(commands_pkg)
+    fake_dispatcher.run_dispatcher.reset_mock()
+    fake_bot_utils._send.reset_mock()
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    update, context = _make_update_and_context(111, "hello")
+    await listener.on_message(update, context)
+
+    fake_dispatcher.run_dispatcher.assert_awaited_once()
+    assert not fake_bot_state.dispatch_lock.locked()
+
+
+@pytest.mark.asyncio
+async def test_on_message_releases_lock_after_dispatcher_error(tmp_path):
+    """The dispatch_lock is released even when run_dispatcher raises."""
+    commands_pkg = _make_commands_pkg(tmp_path, [])
+    _, fake_bot_state, fake_bot_utils, fake_dispatcher, _ = _install_fake_deps(commands_pkg)
+    fake_dispatcher.run_dispatcher = AsyncMock(side_effect=RuntimeError("boom"))
+    sys.modules["windows.src.dispatcher"].run_dispatcher = fake_dispatcher.run_dispatcher
+    fake_bot_utils._send.reset_mock()
+
+    for key in list(sys.modules):
+        if "listener" in key:
+            del sys.modules[key]
+
+    import windows.src.listener as listener
+
+    update, context = _make_update_and_context(111, "hello")
+    await listener.on_message(update, context)
+
+    fake_dispatcher.run_dispatcher.assert_awaited_once()
+    assert not fake_bot_state.dispatch_lock.locked()
+    fake_bot_utils._send.assert_awaited_once()
+    sent_text = fake_bot_utils._send.call_args.args[2]
+    assert "error" in sent_text.lower()
